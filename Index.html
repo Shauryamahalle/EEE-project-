@@ -1,0 +1,374 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D DC UPS Circuit Simulator - FY ENTC Project</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .label-3d {
+            position: absolute;
+            pointer-events: auto;
+            transform: translate(-50%, -100%);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 10;
+        }
+        .label-3d:hover {
+            z-index: 30;
+            transform: translate(-50%, -105%) scale(1.05);
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        /* Custom scrollbar for small screens */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.3);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden">
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container" class="w-full h-full"></div>
+
+    <!-- 3D Floating HTML Labels Container (Hidden by default so model is completely clear) -->
+    <div id="labels-container" class="absolute inset-0 pointer-events-none overflow-hidden" style="display: none;"></div>
+
+    <!-- Top Compact Header & Camera Presets Bar -->
+    <header class="absolute top-2.5 left-2.5 right-2.5 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
+        <!-- Compact Project Title Pill -->
+        <div class="glass-panel px-3 py-1.5 rounded-xl pointer-events-auto flex items-center gap-2.5 shadow-lg">
+            <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" id="header-status-dot"></div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-white">12V DC UPS 3D Model</span>
+                <span id="mode-badge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    MAINS AC ACTIVE
+                </span>
+            </div>
+        </div>
+
+        <!-- Camera View & Overlay Controls -->
+        <div class="glass-panel p-1 rounded-xl pointer-events-auto flex flex-wrap items-center gap-1 shadow-lg">
+            <button onclick="setCameraView('overview')" class="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700">
+                Full Bench
+            </button>
+            <button onclick="setCameraView('pcb')" class="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700">
+                Breadboard Zoom
+            </button>
+            <button onclick="setCameraView('protection')" class="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700">
+                MCB & Transformer
+            </button>
+            <button onclick="toggleLabels()" id="btn-labels" class="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-slate-700">
+                3D Pins: OFF
+            </button>
+            <button onclick="toggleModal('syllabus-modal')" class="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition border border-amber-500/40">
+                Viva Notes
+            </button>
+        </div>
+    </header>
+
+    <!-- Sleek Bottom Dock: Unobstructed View of the 3D Model -->
+    <aside class="absolute bottom-3 left-1/2 -translate-x-1/2 w-[calc(100vw-1.5rem)] max-w-4xl glass-panel rounded-2xl px-3.5 py-2.5 pointer-events-auto z-20 shadow-2xl">
+        <div class="flex flex-col md:flex-row items-center justify-between gap-2.5">
+            <!-- Interactive Action Buttons -->
+            <div class="flex flex-wrap items-center justify-center gap-2 w-full md:w-auto">
+                <button id="btn-mains" onclick="toggleMainsPower()" class="py-1.5 px-3 rounded-lg font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] transition flex items-center gap-1.5 shadow">
+                    <span id="btn-mains-icon">⚡</span>
+                    <span id="btn-mains-label">Cut 230V Mains (Blackout)</span>
+                </button>
+                <button id="btn-fault" onclick="triggerFault()" class="py-1.5 px-3 rounded-lg font-semibold text-xs text-rose-200 bg-rose-600/80 hover:bg-rose-600 active:scale-[0.99] transition border border-rose-500/40">
+                    ⚠️ Short Circuit
+                </button>
+                <button id="btn-reset" onclick="resetFault()" class="hidden py-1.5 px-3 rounded-lg font-semibold text-xs text-emerald-200 bg-emerald-600/80 hover:bg-emerald-600 active:scale-[0.99] transition border border-emerald-500/40">
+                    🔄 Reset MCB & Fuse
+                </button>
+            </div>
+
+            <!-- Compact Live Readout Strip -->
+            <div class="flex flex-wrap items-center justify-center gap-3 text-xs border-t md:border-t-0 border-slate-700/80 pt-2 md:pt-0 w-full md:w-auto">
+                <div class="flex items-center gap-1">
+                    <span class="text-slate-400 text-[11px]">MCB:</span>
+                    <span id="mcb-state-text" class="font-bold text-emerald-400 mono text-[11px]">ON</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <span class="text-slate-400 text-[11px]">Fuse:</span>
+                    <span id="fuse-state-text" class="font-bold text-emerald-400 mono text-[11px]">OK</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <span class="text-slate-400 text-[11px]">AC:</span>
+                    <span id="tel-ac" class="font-bold text-sky-400 mono text-[11px]">15.0V</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <span class="text-slate-400 text-[11px]">Rect:</span>
+                    <span id="tel-rect" class="font-bold text-amber-400 mono text-[11px]">19.8V</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <span class="text-slate-400 text-[11px]">LM317:</span>
+                    <span id="tel-reg" class="font-bold text-emerald-400 mono text-[11px]">13.80V</span>
+                </div>
+                <div class="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-700">
+                    <span class="text-slate-400 text-[11px]">DMM Out:</span>
+                    <span id="tel-out" class="font-bold text-emerald-300 mono text-xs">13.45V</span>
+                </div>
+                <span id="tel-batt" class="hidden lg:inline font-semibold text-emerald-400 mono text-[11px]">Charging (+0.28A)</span>
+                <span id="tel-diode" class="hidden">D1 Forward / D2 Blocked</span>
+                <span id="tel-router" class="hidden">ONLINE</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Viva & Syllabus Equations Modal -->
+    <div id="syllabus-modal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-2xl w-full rounded-2xl p-6 border border-slate-700 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-700 pb-3 mb-4">
+                <div>
+                    <span class="text-xs font-bold uppercase text-amber-400">FY ENTC Syllabus Mapping</span>
+                    <h2 class="text-lg font-bold text-white">Viva-Voce Guide & Circuit Equations</h2>
+                </div>
+                <button onclick="toggleModal('syllabus-modal')" class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-bold">✕</button>
+            </div>
+
+            <div class="space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <h3 class="font-bold text-white mb-1">1. Study of Rectifier & Capacitive Filter (Exp. 2 & 8)</h3>
+                    <p class="text-slate-400 mb-2">The 230V, 50Hz AC supply steps down to $15\text{V}_{\text{rms}}$ AC. Four 1N4007 silicon diodes form a full-wave bridge rectifier (dropping $2 \times 0.7\text{V} = 1.4\text{V}$), smoothed by the $2200\mu\text{F}$ electrolytic capacitor:</p>
+                    <div class="mono text-xs bg-slate-950 p-2.5 rounded-lg text-emerald-300 border border-slate-800">
+                        V_peak = 15V × √2 ≈ 21.21V<br>
+                        V_dc(unregulated) = 21.21V - 1.4V ≈ 19.8V DC
+                    </div>
+                </div>
+
+                <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <h3 class="font-bold text-white mb-1">2. Active Components & Voltage Regulation (Exp. 6)</h3>
+                    <p class="text-slate-400 mb-2">An LM317 adjustable linear voltage regulator sets the float-charging rail at $13.8\text{V}$ using resistor divider $R_1 = 240\,\Omega$ and $R_2 = 2400\,\Omega$:</p>
+                    <div class="mono text-xs bg-slate-950 p-2.5 rounded-lg text-sky-300 border border-slate-800">
+                        V_reg = 1.25V × (1 + R2 / R1) = 1.25V × (1 + 2400 / 240) = 13.75V ≈ 13.8V
+                    </div>
+                </div>
+
+                <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <h3 class="font-bold text-white mb-1">3. KVL, Superposition & Zero-Delay Diode Switching (Exp. 3 & 4)</h3>
+                    <p class="text-slate-400 mb-2">Two 1N5822 Schottky diodes ($V_f \approx 0.35\text{V}$) form a hardware OR-gate at the output node:</p>
+                    <ul class="list-disc pl-5 space-y-1 text-slate-400">
+                        <li><strong class="text-emerald-300">Mains ON:</strong> Regulator feeds $13.8\text{V} - 0.35\text{V} = 13.45\text{V}$ to the router. Since cathode of $D_2$ is at $13.45\text{V}$ and battery anode is at $12.0\text{V}$, diode $D_2$ is <strong>reverse-biased</strong> (blocking battery discharge) while resistor $R_{\text{chg}}$ trickle-charges the battery.</li>
+                        <li><strong class="text-amber-300">Mains OFF (Blackout):</strong> Regulator voltage drops to $0\text{V}$. Diode $D_2$ immediately becomes <strong>forward-biased</strong>, supplying $12.0\text{V} - 0.35\text{V} = 11.65\text{V}$ to the router in nanoseconds so the Wi-Fi never reboots.</li>
+                    </ul>
+                </div>
+
+                <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <h3 class="font-bold text-white mb-1">4. Electrical Protection Equipment (Exp. 1 & 5)</h3>
+                    <p class="text-slate-400">The primary side is guarded by a single-pole Miniature Circuit Breaker (MCB) and a $0.5\text{A}$ glass cartridge fuse, while the DC output features a $2\text{A}$ fast-blow fuse to protect both the battery and router from short-circuits.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. GLOBAL SIMULATION STATE
+        // ==========================================
+        const simState = {
+            mainsOn: true,
+            faultTripped: false,
+            labelsVisible: false,
+            routerUptimeSec: 0
+        };
+
+        // 3D Scene References
+        let scene, camera, renderer, controls;
+        let mcbLeverMesh, fuseWireMesh, dmmScreenTexture, dmmScreenCanvas, dmmCtx;
+        let ledMainsMesh, ledBackupMesh, ledFaultMesh;
+        let routerLedMeshes = [];
+        const particleSystems = [];
+        const labelElements = [];
+        const clickableObjects = [];
+
+        // Component 3D Anchor Coordinates for Floating Labels
+        const componentAnchors = [
+            {
+                id: 'mcb',
+                title: '1. Safety & Protection',
+                subtitle: '6A MCB + 0.5A Glass Fuse',
+                desc: 'Protects 230V AC primary from overloads & short circuits (Exp. 1 & 5).',
+                pos: new THREE.Vector3(-12.5, 4.2, -3.5),
+                color: 'border-rose-500/50'
+            },
+            {
+                id: 'transformer',
+                title: '2. Step-Down Transformer',
+                subtitle: '230V AC → 15V AC (50Hz)',
+                desc: 'Isolates and steps down lethal mains voltage to safe 15V AC rms.',
+                pos: new THREE.Vector3(-6.8, 4.8, -3.5),
+                color: 'border-sky-500/50'
+            },
+            {
+                id: 'rectifier',
+                title: '3. Bridge Rectifier',
+                subtitle: '4x 1N4007 Silicon Diodes',
+                desc: 'Converts bi-directional 15V AC into pulsating DC, dropping ~1.4V (Exp. 8).',
+                pos: new THREE.Vector3(-1.8, 2.5, -1.8),
+                color: 'border-amber-500/50'
+            },
+            {
+                id: 'capacitor',
+                title: '4. Capacitive Filter',
+                subtitle: '2200µF 25V + 0.1µF Ceramic',
+                desc: 'Reservoir capacitor smooths AC ripple into steady ~19.8V DC (Exp. 2).',
+                pos: new THREE.Vector3(0.4, 3.6, -2.5),
+                color: 'border-indigo-500/50'
+            },
+            {
+                id: 'regulator',
+                title: '5. Voltage Regulation',
+                subtitle: 'LM317 IC + Heatsink + R1/R2',
+                desc: 'Regulates smoothed DC to exact 13.8V float voltage for charging & load (Exp. 6).',
+                pos: new THREE.Vector3(2.8, 3.8, -2.8),
+                color: 'border-emerald-500/50'
+            },
+            {
+                id: 'diodes',
+                title: '6. Seamless OR-ing Switch',
+                subtitle: 'D1 & D2 (1N5822) + R_chg',
+                desc: 'Auto-switches between Mains (13.45V) and Battery (11.65V) with 0ms delay.',
+                pos: new THREE.Vector3(4.8, 2.5, -0.5),
+                color: 'border-purple-500/50'
+            },
+            {
+                id: 'battery',
+                title: '7. 12V Lead-Acid Battery',
+                subtitle: '12V 7Ah Sealed Lead-Acid',
+                desc: 'Trickle charges when AC is ON; instantly powers load when AC drops (Exp. 3 & 4).',
+                pos: new THREE.Vector3(1.5, 5.2, 6.2),
+                color: 'border-amber-500/50'
+            },
+            {
+                id: 'router',
+                title: '8. 12V Wi-Fi Router Load',
+                subtitle: 'Continuous 12V DC Consumer',
+                desc: 'Stays online continuously during blackouts without rebooting.',
+                pos: new THREE.Vector3(11.5, 4.5, -1.5),
+                color: 'border-emerald-500/50'
+            },
+            {
+                id: 'dmm',
+                title: '9. Digital Multimeter',
+                subtitle: 'Live Output Voltage Monitor',
+                desc: 'Measures steady-state regulated DC output across the load terminals (Exp. 7).',
+                pos: new THREE.Vector3(10.8, 3.8, 5.8),
+                color: 'border-yellow-500/50'
+            }
+        ];
+
+        // ==========================================
+        // 2. INITIALIZE THREE.JS SCENE
+        // ==========================================
+        window.onload = function () {
+            initScene();
+            buildWorkbench();
+            buildACInputAndProtection();
+            buildTransformer();
+            buildBreadboardAndCircuit();
+            buildLeadAcidBattery();
+            buildWiFiRouter();
+            buildDigitalMultimeter();
+            buildAllWiringAndParticles();
+            createFloatingLabels();
+            updateSimulationVisuals();
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onPointerDown);
+
+            animate();
+        };
+
+        function initScene() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0b1120);
+            scene.fog = new THREE.FogExp2(0x0b1120, 0.012);
+
+            camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+            camera.position.set(0, 15, 22);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.maxPolarAngle = Math.PI / 2 - 0.03;
+            controls.minDistance = 6;
+            controls.maxDistance = 48;
+            controls.target.set(0, 1.2, 0.5);
+
+            // Studio Lab Lighting
+            const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.65);
+            scene.add(ambientLight);
+
+            const mainDirLight = new THREE.DirectionalLight(0xffffff, 0.95);
+            mainDirLight.position.set(14, 26, 18);
+            mainDirLight.castShadow = true;
+            mainDirLight.shadow.mapSize.width = 2048;
+            mainDirLight.shadow.mapSize.height = 2048;
+            mainDirLight.shadow.camera.near = 5;
+            mainDirLight.shadow.camera.far = 60;
+            const d = 22;
+            mainDirLight.shadow.camera.left = -d;
+            mainDirLight.shadow.camera.right = d;
+            mainDirLight.shadow.camera.top = d;
+            mainDirLight.shadow.camera.bottom = -d;
+            scene.add(mainDirLight);
+
+            const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.35);
+            fillLight.position.set(-18, 12, -12);
+            scene.add(fillLight);
+        }
+
+        // ==========================================
+        // 3. BUILD 3D HARDWARE MODELS
+        // ==========================================
+
+        // 3.1 Lab Workbench & ESD Mat
+        function buildWorkbench() {
+            // Wooden Lab Bench Top
+            const tableGeo = new THREE.BoxGeometry(36, 1.2, 22);
+            const tableMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7, metalness: 0.1 });
+            const table = new THREE.Mesh(tableGeo, tableMat);
+            table.position.set(0, -0.6, 0.5);
+            table.receiveShadow = true;
+            scene.add(table);
+
+            // Anti-Static Blue/Grey Engineering Mat
+            const matGeo = new THREE.BoxGeometry(33, 0.08, 19);
+            const matMaterial = new THREE.MeshStandardMaterial({ c
